@@ -1,6 +1,5 @@
 using Microsoft.Win32;
 using System.Diagnostics;
-using Newtonsoft.Json;
 
 namespace App.WindowsService;
 
@@ -9,6 +8,8 @@ public sealed class WindowsBackgroundService : BackgroundService
     private readonly ILogger<WindowsBackgroundService> _logger;
     private readonly Checkin _checkin;
     private readonly Download _download;
+    private readonly TimeSpan checkinDelay = TimeSpan.FromSeconds(10);
+    public Campaign campaign = new Campaign();
 
     public WindowsBackgroundService(
         Checkin checkin,
@@ -22,68 +23,66 @@ public sealed class WindowsBackgroundService : BackgroundService
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                string servicePath = $"{Directory.GetCurrentDirectory()}\\BlindspotService.exe";
+                _logger.LogError($"campaign_uuid: {campaign.CampaignUUID}");
                 Config config = new Config();
-
-                // If there is a config.json we need to write the values to Registry then destroy the config.json
-                string configPath = $"{Directory.GetCurrentDirectory()}\\config.json";
-                _logger.LogInformation($"{configPath}");
                 if (OperatingSystem.IsWindows())
                 {
-                    var blindspotReg = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Blindspot", true);
-                    if (File.Exists(configPath))
+                    var blindspotReg = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Blindspot");
+                    if(blindspotReg != null)
                     {
-                        _logger.LogInformation("config.json does exist.", configPath);
-                        using(StreamReader r = new StreamReader("config.json"))
-                        {
-                            string json = r.ReadToEnd();
-                            config = JsonConvert.DeserializeObject<Config>(json);
-                        }
-                        try
-                        {
-                            _logger.LogInformation("Trying to SetValue of config");
-                            blindspotReg.SetValue("test", "test's value");
-                            blindspotReg.SetValue("API_KEY", config.api_key);
-                            blindspotReg.SetValue("EMAIL", config.email);
-                            blindspotReg.SetValue("AGENT_INSTALL_UUID", config.agent_install_uuid);
-                            File.Delete(configPath);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError("Failed to set Values: ", ex.Message);
-                        }
-                    } else
-                    {
-                        _logger.LogInformation("Trying to GetValue of Registry keys");
-                        config.api_key = (string)blindspotReg.GetValue("API_KEY");
-                        config.email = (string)blindspotReg.GetValue("EMAIL");
-                        config.agent_install_uuid = (string)blindspotReg.GetValue("AGENT_INSTALL_UUID");
+                        config.api_key = (string?)blindspotReg.GetValue("API_KEY");
+                        config.email = (string?)blindspotReg.GetValue("EMAIL");
+                        config.agent_install_uuid = (string?)blindspotReg.GetValue("AGENT_INSTALL_UUID");
+                        config.path = (string?)blindspotReg.GetValue("DIR");
                     }
                 }
-
+                string agentPath = $"{config.path}\\blindspotagent.exe";
                 // Check for a pending C2Operation
-                bool result = _checkin.GetPendingC2op(config);
+                bool result = _checkin.GetPendingC2op(config, campaign);
                 if (result)
                 {
                     // Does a agent.exe already exist in this directory?
-                    if (File.Exists(servicePath))
+                    if (File.Exists(agentPath))
                     {
-                        if(Process.GetProcessesByName("BlindspotService").Length == 0)
+                        // if agent is downloaded but not running
+                        if(Process.GetProcessesByName("blindspotagent").Length == 0)
                         {
-                            // If BlindspotService.exe exists, start it.
-                            Process.Start(servicePath);
+                            // start it.
+                            Process agent = new Process();
+                            agent.StartInfo.FileName = agentPath;
+                            agent.StartInfo.Arguments = "-service";
+                            agent.StartInfo.WorkingDirectory = config.path;
+                            agent.Start();
                         }
                     }
                     else
                     {
                         // If agent.exe does NOT exist, download, THEN start it.
                         await _download.DownloadAgent(config);
-                        Process.Start(servicePath);
+                        Process agent = new Process();
+                        agent.StartInfo.FileName = agentPath;
+                        agent.StartInfo.Arguments = "-service";
+                        agent.StartInfo.WorkingDirectory = config.path;
+                        agent.Start();
                     }
-
-
+                } else if (!result && Process.GetProcessesByName("blindspotagent").Length > 0)
+                {
+                    if(_checkin.IsCampaignComplete(config, campaign))
+                    {
+                        // Kill process
+                        foreach (Process proc in Process.GetProcessesByName("blindspotagent"))
+                        {
+                            // Stop process immediately.
+                            proc.Kill();
+                            // Wait for process to exit.
+                            proc.WaitForExit();
+                            // Release resources used by process.
+                            proc.Dispose();
+                        }
+                    }
                 }
-                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                _logger.LogInformation($"Finished task. Waiting {checkinDelay} seconds to repeat.");
+                await Task.Delay(checkinDelay, stoppingToken);
             }
         }
         catch (Exception ex)

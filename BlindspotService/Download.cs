@@ -10,7 +10,6 @@ public class Download
     {
         using (var client = new HttpClient())
         {
-            var cwd = Directory.GetCurrentDirectory();
             var postData = new Dictionary<string, string>
             {
                 { "API_KEY", $"{config.api_key}" }
@@ -23,15 +22,12 @@ public class Download
 
             using (var stream = await response.Result.Content.ReadAsStreamAsync())
             {
-                var fileInfo = new FileInfo($"{cwd}\\agent.exe");
+                var fileInfo = new FileInfo($"{config.path}\\blindspotagent.exe");
                 using (var fileStream = fileInfo.OpenWrite())
                 {
                     await stream.CopyToAsync(fileStream);
                 }
             }
-
-            var responseString = response.Result.Content.ReadAsStringAsync().Result;
-
             return true;
         }
     }
