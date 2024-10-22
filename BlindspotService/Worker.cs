@@ -1,3 +1,4 @@
+using Blindspot.Services;
 using Microsoft.Win32;
 using System.Diagnostics;
 
@@ -8,7 +9,7 @@ public sealed class WindowsBackgroundService : BackgroundService
     private readonly ILogger<WindowsBackgroundService> _logger;
     private readonly Checkin _checkin;
     private readonly Download _download;
-    private readonly TimeSpan checkinDelay = TimeSpan.FromSeconds(10);
+    private readonly TimeSpan checkinDelay = TimeSpan.FromMinutes(10);
     public Campaign campaign = new Campaign();
 
     public WindowsBackgroundService(
@@ -23,14 +24,22 @@ public sealed class WindowsBackgroundService : BackgroundService
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                _logger.LogError($"campaign_uuid: {campaign.CampaignUUID}");
+                //_logger.LogError($"campaign_uuid: {campaign.CampaignUUID}");
                 Config config = new Config();
                 if (OperatingSystem.IsWindows())
                 {
+
                     var blindspotReg = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Blindspot");
-                    if(blindspotReg != null)
+                    if (blindspotReg != null)
                     {
-                        config.api_key = (string?)blindspotReg.GetValue("API_KEY");
+                        _logger.LogDebug($"in if statement blingsptReg not null");
+                        // decrypt api_key
+                        var encryptionService = new EncryptionService();
+                        var encryptedApiKey = (string?)blindspotReg.GetValue("API_KEY") ?? "";
+
+                        string apiKey = encryptionService.Decrypt(encryptedApiKey);
+                        config.api_key = apiKey;
+                        _logger.LogDebug($"api_key: {apiKey}");
                         config.email = (string?)blindspotReg.GetValue("EMAIL");
                         config.agent_install_uuid = (string?)blindspotReg.GetValue("AGENT_INSTALL_UUID");
                         config.path = (string?)blindspotReg.GetValue("DIR");
