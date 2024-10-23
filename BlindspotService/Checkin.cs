@@ -28,7 +28,10 @@ public class Checkin
                     {
                         if (data.IsUninstall) {
                             // Uninstall this service here
-                            
+                            UninstallService("BlindspotService");
+                            // exit service if still running
+                            Process.GetCurrentProcess().Kill();
+
                         }
                         if (data.IsPending)
                         {
